@@ -33,6 +33,8 @@ Last updated: 2026-09-25
 | `go-testing` | Trigger: Go tests, go test coverage, Bubbletea teatest, golden files. Apply focused Go testing patterns. | user | `C:\Users\diego\.agents\skills\go-testing\SKILL.md` |
 | `issue-creation` | Create Gentle AI issues with issue-first checks. Trigger: creating GitHub issues, bug reports, or feature requests. | user | `C:\Users\diego\.agents\skills\issue-creation\SKILL.md` |
 | `judgment-day` | Trigger: judgment day, dual review, adversarial review, juzgar. Run blind dual review, fix confirmed issues, then re-judge. | user | `C:\Users\diego\.agents\skills\judgment-day\SKILL.md` |
+| `md-log` | Vincula esta sesión a una nota .md para que el historial se registre en ella automáticamente. | project | `C:\Users\diego\Desktop\AI Learning\ai-tutor\.claude\skills\md-log\SKILL.md` |
+| `md-unlog` | Desvincula esta sesión de la nota: deja de registrar el historial automáticamente. | project | `C:\Users\diego\Desktop\AI Learning\ai-tutor\.claude\skills\md-unlog\SKILL.md` |
 | `skill-creator` | Trigger: new skills, agent instructions, documenting AI usage patterns. Create LLM-first skills with valid frontmatter. | user | `C:\Users\diego\.agents\skills\skill-creator\SKILL.md` |
 | `skill-improver` | Trigger: improve skills, audit skills, refactor skills, skill quality. Audit and upgrade existing LLM-first skills. | user | `C:\Users\diego\.agents\skills\skill-improver\SKILL.md` |
 | `source-command-sdd-init` | Initialize SDD context — detects project stack and bootstraps persistence backend | user | `C:\Users\diego\.agents\skills\source-command-sdd-init\SKILL.md` |

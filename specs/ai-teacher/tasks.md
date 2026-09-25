@@ -100,17 +100,17 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 4 — md-log
 
-- [ ] **T4.1 `link` / `unlink` / `render`** — RF-15…18, RNF-05
+- [x] **T4.1 `link` / `unlink` / `render`** — RF-15…18, RNF-05
   > Prompt: *"Lee design.md 4.5 y specs/spikes.md (formato del transcript). Añade a md-log.mjs los subcomandos link <ruta>, unlink y render (lee JSON por stdin, regenera el .md completo desde transcript_path, escritura atómica). Incluye usuario, texto del asistente y bloques AskUserQuestion; excluye tool calls, tool results y cualquier quiz-commit. Ignora tipos de entrada desconocidos sin fallar. Tests con un transcript de ejemplo en fixtures/."*
 
   **Verificación:** `npm test` pasa, incluido un test que asegura que la respuesta correcta nunca aparece antes del bloque de respuesta.
 
-- [ ] **T4.2 Skills `/md-log`, `/md-unlog` y hook**
+- [x] **T4.2 Skills `/md-log`, `/md-unlog` y hook**
   > Prompt: *"Crea .claude/skills/md-log/SKILL.md y md-unlog/SKILL.md con disable-model-invocation: true, que ejecuten los subcomandos link \"$ARGUMENTS\" y unlink. Registra el hook Stop de design.md 4.5 en .claude/settings.json."*
 
   **Verificación:** reinicia Claude Code. Conversa un poco → `/md-log notas/prueba.md` → otro mensaje → el `.md` aparece en Obsidian **con el historial previo**. `/md-unlog` → nuevos mensajes ya no se agregan. Sesión nueva vinculada a la **misma** nota → se agrega un segundo bloque sin borrar el primero (ADR-08).
 
-- [ ] **T4.3 Cuaderno de estudio** — RNF-06
+- [x] **T4.3 Cuaderno de estudio** — RNF-06
   > Prompt: *"Lee design.md 4.9. Añade a md-log.mjs el subcomando notebook (resumen compacto de notas/_cuaderno.md o 'Cuaderno vacío'), con tests. Registra el hook SessionStart. Agrega a la skill teach la sección 'Cuaderno' con los tres momentos de escritura y el flujo de retomar un tema."*
 
   **Verificación:** con un `_cuaderno.md` de ejemplo, abrir `claude` → el tutor menciona el tema en curso y el próximo nodo sin que se lo pidas.

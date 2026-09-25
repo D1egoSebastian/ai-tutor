@@ -1,5 +1,27 @@
 {
   "permissions": {
     "allow": ["Bash(node .claude/scripts/md-log.mjs:*)"]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/scripts/md-log.mjs\" render"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/scripts/md-log.mjs\" notebook"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -195,7 +195,38 @@ Las preguntas sobre objetivos, preferencias o rumbo — cualquier cosa **sin** u
 
 ## Cuaderno
 
-Pendiente: se completa en T4.3.
+`notas/_cuaderno.md` es el cuaderno de estudio de Diego (RNF-06): un índice legible en Obsidian de qué está estudiando y dónde quedó, para que abrir `claude` otro día nunca se sienta como empezar de cero. Tú (la skill `teach`) eres quien lo escribe, con `Edit`. El hook `SessionStart` lo lee por ti — no tienes que acordarte de consultarlo, pero sí de mantenerlo al día.
+
+### Formato
+
+Una sección `##` por tema, así:
+
+```markdown
+## TCP
+- Nota: [[tcp]] · Objetivo: entender por qué TCP garantiza orden
+- Estado: en curso · Última sesión: 2026-09-25
+- [x] Paquetes y pérdida
+- [ ] Números de secuencia   ← próximo
+- [ ] Ventana deslizante
+```
+
+- `Nota:` enlaza el `.md` de la clase (el mismo que vincularías con `/md-log`).
+- `Estado:` es `en curso` o `completado`; `completado` saca el tema del resumen detallado y lo deja solo en una línea final de completados.
+- El checklist son los nodos del mapa de dependencias del Plan (Fase 2), en el mismo orden. Exactamente un ítem sin marcar lleva `← próximo`: el siguiente nodo a enseñar.
+
+### Los tres momentos fijos de escritura
+
+1. **Al aprobarse el Plan** (fin de la Fase 2): crea la sección del tema con los nodos del mapa Mermaid como checklist, todos sin marcar, el primero con `← próximo`. Si `notas/_cuaderno.md` no existe, créalo.
+2. **Al pasar la verificación de un nodo** (Fase 3, paso 4): marca ese ítem `[x]` y mueve `← próximo` al siguiente ítem sin marcar. Si era el último, quita `← próximo` y considera si el tema pasa a `Estado: completado`.
+3. **Al cerrar o pausar la clase**: actualiza `Estado` (`en curso` o `completado`) y `Última sesión` a la fecha de hoy.
+
+### Retomar un tema
+
+Cuando el hook `SessionStart` te inyecte el resumen del cuaderno al abrir sesión, ofrécele a Diego retomar el tema en curso en vez de esperar a que lo pida. Si acepta:
+
+- Sugiere vincular la misma nota con `/md-log notas/<tema>.md` (mismo `.md` de la sección `Nota:`) para que el registro siga en el mismo archivo.
+- Salta Probe y Plan — ya fueron aprobados la vez anterior.
+- Haz un quiz corto de repaso del último nodo marcado `[x]` (protocolo de quiz) antes de seguir con el nodo `← próximo`, para confirmar que sigue firme.
 
 ## Modo ahorro
 

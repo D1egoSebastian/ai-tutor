@@ -57,6 +57,42 @@ function quizKeyPath(stateDir) {
   return path.join(stateDir, "quiz-key.jsonl");
 }
 
+function statePath(stateDir) {
+  return path.join(stateDir, "state.json");
+}
+
+function errorLogPath(stateDir) {
+  return path.join(stateDir, "md-log-error.log");
+}
+
+/**
+ * Writes `content` to `filePath` atomically: write to a temp file in the
+ * same directory, then rename. Rename is atomic on the same filesystem, so
+ * a reader (Obsidian) never observes a half-written file.
+ */
+function writeFileAtomic(filePath, content) {
+  const dir = path.dirname(filePath);
+  ensureDir(dir);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmpPath, content, "utf8");
+  fs.renameSync(tmpPath, filePath);
+}
+
+/**
+ * Appends an error line to `<stateDir>/md-log-error.log`. Never throws:
+ * this is the last-resort error channel for the Stop/SessionStart hooks,
+ * which must never break Claude Code even if logging itself fails.
+ */
+function logError(stateDir, message) {
+  try {
+    ensureDir(stateDir);
+    fs.appendFileSync(errorLogPath(stateDir), `[${new Date().toISOString()}] ${message}\n`, "utf8");
+  } catch {
+    // Swallow — logging must never throw.
+  }
+  process.stderr.write(`${message}\n`);
+}
+
 // ---------------------------------------------------------------------------
 // Answer normalization
 // ---------------------------------------------------------------------------
@@ -151,6 +187,467 @@ export function gradeQuiz({ stateDir, id, answer }) {
 }
 
 // ---------------------------------------------------------------------------
+// state.json (link / unlink / render) — T4.1, RF-15…18
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes a user-supplied note path into a project-relative POSIX path:
+ *  - backslashes -> forward slashes (Windows input is common: /md-log notas\tcp.md)
+ *  - resolved relative to `root`; absolute paths (Windows drive letters included)
+ *    are accepted as long as they resolve *inside* `root`
+ *  - `.md` is appended when the path doesn't already end with it
+ * Throws a plain Error (mapped to exit 1 by the CLI dispatcher) when the
+ * resolved path escapes the project root — never silently write outside it.
+ */
+export function normalizeNotePath(root, inputPath) {
+  if (!inputPath || typeof inputPath !== "string" || inputPath.trim().length === 0) {
+    throw new UsageError("link requires a non-empty path");
+  }
+
+  const slashed = inputPath.replace(/\\/g, "/").trim();
+  const rootResolved = path.resolve(root);
+  const absolute = path.resolve(rootResolved, slashed);
+  const relative = path.relative(rootResolved, absolute);
+
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`path resolves outside the project root: ${inputPath}`);
+  }
+
+  let posixPath = relative.split(path.sep).join("/");
+  if (!posixPath.toLowerCase().endsWith(".md")) {
+    posixPath += ".md";
+  }
+  return posixPath;
+}
+
+/** Reads `<stateDir>/state.json`. Tolerant: missing/corrupt file -> default shape. */
+export function readState(stateDir) {
+  const filePath = statePath(stateDir);
+  if (!fs.existsSync(filePath)) {
+    return { pending: null, links: {} };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return {
+      pending: parsed && "pending" in parsed ? parsed.pending : null,
+      links: parsed && parsed.links && typeof parsed.links === "object" ? parsed.links : {},
+    };
+  } catch {
+    return { pending: null, links: {} };
+  }
+}
+
+/** Writes `<stateDir>/state.json` atomically. */
+export function writeState(stateDir, state) {
+  ensureDir(stateDir);
+  writeFileAtomic(statePath(stateDir), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+/** `link <path>`: normalizes the path and stores it as `pending`. Returns the normalized path. */
+export function link({ root, stateDir, inputPath }) {
+  const normalized = normalizeNotePath(root, inputPath);
+  const state = readState(stateDir);
+  state.pending = normalized;
+  writeState(stateDir, state);
+  return normalized;
+}
+
+/** CLI wrapper for `link`. `args[0]` is the raw path argument. */
+export function runLink({ args, root, stateDir }) {
+  const inputPath = args[0];
+  const normalized = link({ root, stateDir, inputPath });
+  return `linked (pending): ${normalized}\n`;
+}
+
+/** CLI wrapper for `unlink`: marks `pending: "UNLINK"`, consumed by the next `render`. */
+export function runUnlink({ stateDir }) {
+  const state = readState(stateDir);
+  state.pending = "UNLINK";
+  writeState(stateDir, state);
+  return "unlink requested\n";
+}
+
+// ---------------------------------------------------------------------------
+// Transcript parsing (render) — T4.1, spikes.md S2
+// ---------------------------------------------------------------------------
+
+/** Reads a `.jsonl` transcript into an array of parsed objects. Malformed lines are skipped. */
+export function readJsonlLines(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return [];
+  }
+  const raw = fs.readFileSync(filePath, "utf8");
+  const lines = raw.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+
+  const parsed = [];
+  for (const line of lines) {
+    try {
+      parsed.push(JSON.parse(line));
+    } catch {
+      // Malformed line — skip without failing (spikes.md S2).
+    }
+  }
+  return parsed;
+}
+
+const USER_EXCLUDED_PREFIXES = ["<command-name>", "<local-command-", "<system-reminder>"];
+
+function isExcludedUserText(text) {
+  return USER_EXCLUDED_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
+function textFromContentBlocks(content) {
+  const texts = content
+    .filter((block) => block && block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text);
+  return texts.length ? texts.join("\n\n") : null;
+}
+
+/**
+ * Pre-scans every line for AskUserQuestion `tool_result` lines, building a
+ * map `tool_use_id -> answers` (from `toolUseResult.answers`, keyed by
+ * question text). Needed because the answer can arrive on a line *after*
+ * the tool_use line that asked the question (spikes.md S2).
+ */
+function buildAskAnswersMap(lines) {
+  const map = new Map();
+  for (const line of lines) {
+    if (!line || typeof line !== "object") continue;
+    const answers = line.toolUseResult && line.toolUseResult.answers;
+    const content = line.message && line.message.content;
+    if (!answers || !Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block && block.type === "tool_result" && block.tool_use_id) {
+        map.set(block.tool_use_id, answers);
+      }
+    }
+  }
+  return map;
+}
+
+function pushOrMergeText(items, kind, text, timestamp) {
+  const last = items[items.length - 1];
+  if (last && last.kind === kind) {
+    last.text += `\n\n${text}`;
+  } else {
+    items.push({ kind, text, timestamp });
+  }
+}
+
+/**
+ * Walks the parsed transcript lines and returns the ordered list of
+ * "included" render items (user messages, assistant prose, AskUserQuestion
+ * blocks), applying every inclusion/exclusion rule from spikes.md S2.
+ */
+function extractItems(lines) {
+  const askAnswers = buildAskAnswersMap(lines);
+  const items = [];
+
+  for (const line of lines) {
+    if (!line || typeof line !== "object") continue;
+
+    if (line.type === "user") {
+      if (line.isMeta === true || line.isSidechain === true || line.isCompactSummary === true) continue;
+
+      const content = line.message && line.message.content;
+      let text = null;
+
+      if (typeof content === "string") {
+        if (isExcludedUserText(content)) continue;
+        text = content;
+      } else if (Array.isArray(content)) {
+        const hasNonToolResultBlock = content.some((block) => block && block.type !== "tool_result");
+        if (!hasNonToolResultBlock) continue; // tool_result-only line (handled via askAnswers)
+        text = textFromContentBlocks(content);
+        if (text && isExcludedUserText(text)) continue;
+      }
+
+      if (!text) continue;
+      pushOrMergeText(items, "user", text, line.timestamp);
+      continue;
+    }
+
+    if (line.type === "assistant") {
+      if (line.isSidechain === true) continue;
+      const content = line.message && line.message.content;
+      if (!Array.isArray(content)) continue;
+
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+
+        if (block.type === "text" && typeof block.text === "string") {
+          pushOrMergeText(items, "assistant", block.text, line.timestamp);
+          continue;
+        }
+
+        if (block.type === "tool_use" && block.name === "AskUserQuestion") {
+          const questions = Array.isArray(block.input && block.input.questions) ? block.input.questions : [];
+          const answersByQuestion = askAnswers.get(block.id) || null;
+          items.push({
+            kind: "ask",
+            timestamp: line.timestamp,
+            questions: questions.map((q) => ({
+              question: q.question,
+              options: Array.isArray(q.options) ? q.options.map((o) => o.label) : [],
+              answer: answersByQuestion ? answersByQuestion[q.question] : undefined,
+            })),
+          });
+          continue;
+        }
+
+        // thinking, every other tool_use, everything else -> excluded silently.
+      }
+      continue;
+    }
+
+    // Non user/assistant top-level types (attachment, file-history-snapshot, ...) -> skip.
+  }
+
+  return items;
+}
+
+function renderQuestionBlock(q) {
+  const options = q.options.join(" · ");
+  const answer = q.answer === undefined || q.answer === null ? "_(pendiente)_" : q.answer;
+  return [`> **Pregunta:** ${q.question}`, `> **Opciones:** ${options}`, `> **Respuesta:** ${answer}`].join("\n");
+}
+
+function renderItem(item) {
+  if (item.kind === "user") return `**Diego:** ${item.text}`;
+  if (item.kind === "assistant") return item.text;
+  if (item.kind === "ask") return item.questions.map(renderQuestionBlock).join("\n\n");
+  return "";
+}
+
+function resolveSessionDate(items, now) {
+  for (const item of items) {
+    if (item.timestamp) {
+      const parsed = new Date(item.timestamp);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+      }
+    }
+  }
+  return now().toISOString().slice(0, 10);
+}
+
+const SESSION_START = (sessionId) => `<!-- md-log:session ${sessionId} start -->`;
+const SESSION_END = (sessionId) => `<!-- md-log:session ${sessionId} end -->`;
+
+/**
+ * Renders the full `<!-- md-log:session ... -->` block for one session from
+ * its already-parsed transcript lines. Pure function: no filesystem access.
+ */
+export function renderSessionBlock({ sessionId, lines, now = () => new Date() }) {
+  const items = extractItems(lines);
+  const date = resolveSessionDate(items, now);
+  const body = [`## Sesión ${date}`, ...items.map(renderItem)].join("\n\n");
+  return [SESSION_START(sessionId), body, SESSION_END(sessionId)].join("\n");
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Replaces this session's block in `existingContent` if present, else
+ * appends it at the end. Everything outside the markers is preserved
+ * byte-for-byte (ADR-08: one note, many session blocks).
+ */
+export function upsertSessionBlock({ existingContent, sessionId, block }) {
+  const pattern = new RegExp(`${escapeRegExp(SESSION_START(sessionId))}[\\s\\S]*?${escapeRegExp(SESSION_END(sessionId))}`);
+
+  if (pattern.test(existingContent)) {
+    return existingContent.replace(pattern, block);
+  }
+  if (existingContent.length === 0) {
+    return `${block}\n`;
+  }
+  const separator = existingContent.endsWith("\n\n") ? "" : existingContent.endsWith("\n") ? "\n" : "\n\n";
+  return `${existingContent}${separator}${block}\n`;
+}
+
+/**
+ * `render`: the Stop hook entry point. Reads the hook's JSON from stdin,
+ * applies `pending` to `links[session_id]`, and (if the session has a link)
+ * regenerates only that session's block in the linked note.
+ *
+ * ADR-04: never breaks Claude Code. Every failure path logs to
+ * `.learn/md-log-error.log` and returns normally (the CLI dispatcher always
+ * exits 0 for this subcommand).
+ */
+export async function runRender({ stateDir, root, stdin = process.stdin, now = () => new Date() }) {
+  let hookInput;
+  try {
+    const raw = await readStream(stdin);
+    hookInput = JSON.parse(raw);
+  } catch (err) {
+    logError(stateDir, `render: could not parse hook stdin JSON: ${err.message}`);
+    return;
+  }
+
+  try {
+    const sessionId = hookInput && hookInput.session_id;
+    const transcriptPath = hookInput && hookInput.transcript_path;
+
+    if (!sessionId || typeof sessionId !== "string") {
+      logError(stateDir, "render: hook input is missing session_id");
+      return;
+    }
+
+    const state = readState(stateDir);
+    if (state.pending === "UNLINK") {
+      delete state.links[sessionId];
+    } else if (typeof state.pending === "string" && state.pending.length > 0) {
+      state.links[sessionId] = state.pending;
+    }
+    state.pending = null;
+    writeState(stateDir, state);
+
+    const notePath = state.links[sessionId];
+    if (!notePath) {
+      return; // No link for this session — exit quietly.
+    }
+
+    const lines = readJsonlLines(transcriptPath);
+    const block = renderSessionBlock({ sessionId, lines, now });
+
+    const absoluteNotePath = path.resolve(root, notePath);
+    const existingContent = fs.existsSync(absoluteNotePath) ? fs.readFileSync(absoluteNotePath, "utf8") : "";
+    const updated = upsertSessionBlock({ existingContent, sessionId, block });
+    writeFileAtomic(absoluteNotePath, updated);
+  } catch (err) {
+    logError(stateDir, `render: ${err.stack || err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Study notebook (notebook) — T4.3, RNF-06, design.md 4.9
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses `notas/_cuaderno.md` into a list of topics. Tolerant by design:
+ * unrecognized lines are ignored, never thrown on.
+ */
+export function parseNotebook(content) {
+  if (typeof content !== "string" || content.trim().length === 0) {
+    return { topics: [] };
+  }
+
+  const topics = [];
+  let current = null;
+
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+
+    const heading = /^##\s+(.+?)\s*$/.exec(rawLine);
+    if (heading) {
+      if (current) topics.push(current);
+      current = { name: heading[1].trim(), note: null, estado: null, ultimaSesion: null, items: [] };
+      continue;
+    }
+
+    if (!current) continue;
+
+    const noteMatch = /Nota:\s*(\S+)/.exec(line);
+    if (noteMatch && !current.note) {
+      current.note = noteMatch[1];
+    }
+
+    const estadoMatch = /Estado:\s*([^·]+?)(?:\s*·|$)/.exec(line);
+    if (estadoMatch) {
+      current.estado = estadoMatch[1].trim();
+    }
+
+    const sesionMatch = /\u00daltima sesi\u00f3n:\s*([^\s·]+)/.exec(line);
+    if (sesionMatch) {
+      current.ultimaSesion = sesionMatch[1].trim();
+    }
+
+    const checklist = /^-\s*\[( |x|X)\]\s*(.+)$/.exec(line);
+    if (checklist) {
+      const done = checklist[1].toLowerCase() === "x";
+      const isNext = /\u2190\s*pr\u00f3ximo/.test(checklist[2]);
+      const text = checklist[2].replace(/\u2190\s*pr\u00f3ximo/g, "").trim();
+      current.items.push({ done, text, isNext });
+    }
+  }
+  if (current) topics.push(current);
+
+  return { topics };
+}
+
+/**
+ * Builds the compact context summary printed by the `SessionStart` hook
+ * (design.md 4.9). Never throws: any parsing problem falls back to the
+ * "empty notebook" message.
+ */
+export function summarizeNotebook(content) {
+  let topics;
+  try {
+    topics = parseNotebook(content).topics;
+  } catch {
+    topics = [];
+  }
+
+  if (!topics || topics.length === 0) {
+    return "Cuaderno de estudio: vac\u00edo (todav\u00eda no hay temas).\n";
+  }
+
+  const inProgress = [];
+  const completed = [];
+
+  for (const topic of topics) {
+    const estado = (topic.estado || "").trim();
+    if (estado.toLowerCase() === "completado") {
+      completed.push(topic.name);
+      continue;
+    }
+
+    const total = topic.items.length;
+    const done = topic.items.filter((item) => item.done).length;
+    const next = topic.items.find((item) => item.isNext) || topic.items.find((item) => !item.done);
+
+    let line = `${topic.name} — ${estado || "en curso"}, \u00faltima sesi\u00f3n ${topic.ultimaSesion || "?"} — ${done}/${total} nodos`;
+    if (next) line += ` — pr\u00f3ximo: ${next.text}`;
+    if (topic.note) line += ` — nota: ${topic.note}`;
+    inProgress.push(`- ${line}`);
+  }
+
+  if (inProgress.length === 0 && completed.length === 0) {
+    return "Cuaderno de estudio: vac\u00edo (todav\u00eda no hay temas).\n";
+  }
+
+  const out = ["Cuaderno de estudio (notas/_cuaderno.md):", ...inProgress];
+  if (completed.length > 0) {
+    out.push(`Completados: ${completed.join(", ")}.`);
+  }
+  if (inProgress.length > 0) {
+    out.push("Si Diego no pide algo concreto, ofr\u00e9cele retomar el tema en curso.");
+  }
+  return `${out.join("\n")}\n`;
+}
+
+/** `notebook`: the SessionStart hook entry point. Never throws — always exits 0. */
+export function runNotebook({ root }) {
+  const notebookPath = path.join(root, "notas", "_cuaderno.md");
+  let content = "";
+  try {
+    if (fs.existsSync(notebookPath)) {
+      content = fs.readFileSync(notebookPath, "utf8");
+    }
+  } catch {
+    content = "";
+  }
+
+  try {
+    return summarizeNotebook(content);
+  } catch {
+    return "Cuaderno de estudio: vac\u00edo (todav\u00eda no hay temas).\n";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI-layer helpers
 // ---------------------------------------------------------------------------
 
@@ -234,6 +731,10 @@ function printUsage() {
       "  quiz-commit --id <qid> --correct <label> --explanation <text>",
       "  quiz-commit --stdin                 (reads {id,correct,explanation} JSON from stdin)",
       "  quiz-grade  --id <qid> --answer <label>",
+      "  link <path>                         (sets pending link; appends .md if missing)",
+      "  unlink                              (sets pending unlink)",
+      "  render                              (Stop hook: reads hook JSON from stdin)",
+      "  notebook                            (SessionStart hook: prints notas/_cuaderno.md summary)",
       "",
     ].join("\n")
   );
@@ -254,6 +755,32 @@ export async function main(argv = process.argv.slice(2)) {
       case "quiz-grade": {
         const output = runQuizGrade({ args: rest, stateDir });
         process.stdout.write(output);
+        return;
+      }
+      case "link": {
+        const output = runLink({ args: rest, root, stateDir });
+        process.stdout.write(output);
+        return;
+      }
+      case "unlink": {
+        const output = runUnlink({ stateDir });
+        process.stdout.write(output);
+        return;
+      }
+      case "render": {
+        // The Stop hook must never break Claude Code: runRender traps every
+        // error internally (logs + stderr) and always resolves normally, so
+        // this subcommand always exits 0.
+        await runRender({ stateDir, root, stdin: process.stdin });
+        return;
+      }
+      case "notebook": {
+        // Same contract as render: SessionStart must never fail the session.
+        try {
+          process.stdout.write(runNotebook({ root }));
+        } catch (err) {
+          logError(stateDir, `notebook: ${err.stack || err.message}`);
+        }
         return;
       }
       default: {
