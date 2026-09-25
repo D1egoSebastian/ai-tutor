@@ -72,12 +72,12 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 2 — Núcleo de enseñanza
 
-- [ ] **T1 CLAUDE.md** — RF-09, RC-04, RF-27
+- [x] **T1 CLAUDE.md** — RF-09, RC-04, RF-27
   > Prompt: *"Lee requirements.md y design.md (sección 4.1 y 4.8). Crea CLAUDE.md en la raíz con: mi perfil (Diego, ingeniero de software junior, analista de arquitectura TI, C#/.NET y web, bases sólidas de álgebra lineal, probabilidad y cálculo), idioma español obligatorio, la regla de usar siempre la skill teach al explicar o enseñar, y la sección 'Configuración del tutor' con researcher: on y visuales: off por ahora. Máximo 40 líneas."*
 
   **Verificación:** `claude` → "¿quién soy y en qué idioma me hablas?" responde con tu perfil en español.
 
-- [ ] **T2 Skill `teach`** — RF-01…08, RF-13
+- [x] **T2 Skill `teach`** — RF-01…08, RF-13
   > Prompt: *"Descarga https://raw.githubusercontent.com/amosblomqvist/learn/main/skills/teach/SKILL.md. Créala en .claude/skills/teach/SKILL.md traducida fielmente al español, siguiendo design.md 4.2: 'él' → 'Diego'; ask_user_question → AskUserQuestion; subagent researcher → subagente researcher vía la herramienta Agent; conserva íntegra la sección de construcción de opciones de quiz. Deja un marcador '## Protocolo de quiz (pendiente T3)' y '## Modo ahorro (pendiente T6)'. No resumas: la traducción debe conservar todos los matices."*
 
   **Verificación:** compara lado a lado con el original: mismas secciones, mismas reglas (bracketing de piso/techo, esperar aprobación del plan, ciclo de 4 pasos). Prueba: "Enséñame qué es una derivada" → empieza con Probe, **no** explicando.
