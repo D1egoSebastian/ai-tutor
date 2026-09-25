@@ -1,0 +1,13 @@
+{
+  "name": "ai-tutor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal tutor on Claude Code: understanding over memorization, lessons logged to Obsidian.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \".claude/scripts/*.test.mjs\""
+  }
+}

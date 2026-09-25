@@ -86,12 +86,12 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 3 — Quiz
 
-- [ ] **T3.1 Comandos `quiz-commit` / `quiz-grade`** — RF-11, RF-12, RNF-05
+- [x] **T3.1 Comandos `quiz-commit` / `quiz-grade`** — RF-11, RF-12, RNF-05
   > Prompt: *"Lee design.md 4.3. Crea .claude/scripts/md-log.mjs (Node, ESM, sin dependencias) con solo dos subcomandos por ahora: quiz-commit --id --correct --explanation (append a .learn/quiz-key.jsonl) y quiz-grade --id --answer (imprime ✓ o ✗ o NO_SE, la correcta y la explicación; error claro si el id no existe). Añade tests con node:test en .claude/scripts/md-log.test.mjs."*
 
-  **Verificación:** `node --test .claude/scripts/` pasa. Prueba manual: commit + grade con acierto, fallo y "No sé".
+  **Verificación:** `npm test` pasa. Prueba manual: commit + grade con acierto, fallo y "No sé".
 
-- [ ] **T3.2 Protocolo en la skill + permisos**
+- [x] **T3.2 Protocolo en la skill + permisos**
   > Prompt: *"Reemplaza el marcador '## Protocolo de quiz' en la skill teach con el protocolo de design.md 4.3 (comprometer → preguntar con AskUserQuestion incluyendo 'No sé' → calificar con el script y transmitir el resultado tal cual). Agrega a .claude/settings.json el permiso para Bash(node .claude/scripts/md-log.mjs:*)."*
 
   **Verificación:** "Hazme un quiz de 3 preguntas sobre Big-O". Revisa: (a) cada pregunta tiene "No sé", (b) `.learn/quiz-key.jsonl` tiene la clave **antes** de que respondas, (c) el feedback coincide con la salida del script, (d) la posición de la correcta varía, (e) no te pide permiso para correr el script.
@@ -103,7 +103,7 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 - [ ] **T4.1 `link` / `unlink` / `render`** — RF-15…18, RNF-05
   > Prompt: *"Lee design.md 4.5 y specs/spikes.md (formato del transcript). Añade a md-log.mjs los subcomandos link <ruta>, unlink y render (lee JSON por stdin, regenera el .md completo desde transcript_path, escritura atómica). Incluye usuario, texto del asistente y bloques AskUserQuestion; excluye tool calls, tool results y cualquier quiz-commit. Ignora tipos de entrada desconocidos sin fallar. Tests con un transcript de ejemplo en fixtures/."*
 
-  **Verificación:** `node --test` pasa, incluido un test que asegura que la respuesta correcta nunca aparece antes del bloque de respuesta.
+  **Verificación:** `npm test` pasa, incluido un test que asegura que la respuesta correcta nunca aparece antes del bloque de respuesta.
 
 - [ ] **T4.2 Skills `/md-log`, `/md-unlog` y hook**
   > Prompt: *"Crea .claude/skills/md-log/SKILL.md y md-unlog/SKILL.md con disable-model-invocation: true, que ejecuten los subcomandos link \"$ARGUMENTS\" y unlink. Registra el hook Stop de design.md 4.5 en .claude/settings.json."*

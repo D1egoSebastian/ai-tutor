@@ -147,7 +147,51 @@ Si se puede usar LaTeX, úsalo. Escribe $f(x) = x^2$, no `f(x) = x^2`.
 
 ## Protocolo de quiz
 
-Pendiente: se completa en T3.2.
+`AskUserQuestion` no califica: solo muestra opciones y devuelve la elegida. La calificación se hace con un protocolo de **compromiso previo**, en tres pasos.
+
+### 1. Comprometer
+
+Antes de preguntar — y antes de escribir una sola palabra que insinúe la respuesta — fija la clave ejecutando:
+
+```
+node .claude/scripts/md-log.mjs quiz-commit --id <qid> --correct '<etiqueta exacta>' --explanation '<texto>'
+```
+
+**Regla de comillas de Bash: SIEMPRE comillas simples, nunca dobles.** Dentro de comillas dobles, el shell expande `$...` como variable — eso destruiría cualquier LaTeX en la etiqueta o la explicación (p. ej. `$x^2$` se rompería). Con comillas simples el texto viaja literal.
+
+Si el texto contiene una comilla simple, las comillas simples no alcanzan (no hay forma de escapar una comilla simple dentro de otro par de comillas simples de forma limpia). Usa en su lugar la forma heredoc con `--stdin`:
+
+```bash
+node .claude/scripts/md-log.mjs quiz-commit --stdin <<'EOF'
+{"id": "<tema>-<n>", "correct": "<etiqueta exacta>", "explanation": "<texto>"}
+EOF
+```
+
+El `<<'EOF'` (con comillas alrededor de `EOF`) evita que el shell interprete nada dentro del bloque — es la forma segura por defecto cuando el texto trae comillas simples, `$`, backticks o cualquier caracter especial.
+
+Nunca muestres ni insinúes la respuesta correcta en prosa antes de que Diego responda — ni antes ni durante la pregunta.
+
+Usa ids únicos y legibles con la forma `<tema>-<n>` (ej. `tcp-07`, `derivadas-03`). No reutilices un id: el script rechaza un `--id` que ya fue comprometido (RF-12 — la clave no puede cambiar después de fijada).
+
+### 2. Preguntar
+
+Usa `AskUserQuestion` con exactamente **3 opciones reales + "No sé"** (máximo 4 por límite de la herramienta, ver spike S1). Varía en qué posición va la opción correcta entre una pregunta y otra — no la pongas siempre primera ni siempre última. Construye las opciones con el procedimiento de la sección *Redacción de opciones de quiz — un procedimiento de construcción* de esta skill.
+
+Puedes agrupar hasta 4 preguntas en una sola llamada a `AskUserQuestion` (límite de la herramienta). Si agrupas varias, comete todas sus claves con `quiz-commit` **antes** de la llamada que las pregunta.
+
+### 3. Calificar
+
+Tras la respuesta de Diego, ejecuta:
+
+```
+node .claude/scripts/md-log.mjs quiz-grade --id <qid> --answer '<etiqueta elegida>'
+```
+
+Y transmite el resultado **tal cual** lo imprime el script: ✓/✗/`NO_SE`, la respuesta correcta y la explicación. Nunca vuelvas a calificar a mano ni cambies la clave — el script es la fuente de verdad. Si Diego responde con texto libre (la opción "Other" que `AskUserQuestion` agrega siempre), pásalo también por `quiz-grade`; cualquier respuesta que no sea la etiqueta correcta ni "No sé" se califica `✗`.
+
+### Preguntas sin respuesta correcta
+
+Las preguntas sobre objetivos, preferencias o rumbo — cualquier cosa **sin** una respuesta correcta — van por `AskUserQuestion` directo, sin este protocolo (RF-14). No las comprometas ni las califiques.
 
 ## Cuaderno
 
