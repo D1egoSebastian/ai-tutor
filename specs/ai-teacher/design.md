@@ -101,7 +101,7 @@ Traducción fiel de la original con estos cambios:
    `node .claude/scripts/md-log.mjs quiz-grade --id <qid> --answer "<etiqueta elegida>"`
    El script compara contra la clave y devuelve `✓` / `✗` / `NO_SE` + correcta + explicación. El tutor transmite ese resultado **tal cual**.
 
-Así la respuesta queda fijada antes de responder (RF-12) y la calificación es determinística. Límites de `AskUserQuestion` (cantidad de preguntas y opciones) se confirman en el spike S1; si el máximo es 4 opciones, el formato queda en 3 reales + "No sé".
+Así la respuesta queda fijada antes de responder (RF-12) y la calificación es determinística. Spike S1 confirmó: máximo 4 opciones por pregunta → formato **3 reales + "No sé"**. `AskUserQuestion` agrega siempre "Other" (texto libre): cualquier respuesta que no sea la correcta ni "No sé" se califica `✗`.
 
 ### 4.4 `AskUserQuestion` para preguntas abiertas (RF-05, RF-14)
 

@@ -48,22 +48,22 @@ Todos los prompts asumen que Claude Code puede leer `specs/`. Empiezan con "Lee 
 
 Un spike responde una pregunta; no produce código final. Guarda cada hallazgo en `specs/ai-teacher/spikes.md`.
 
-- [ ] **S1 Límites de AskUserQuestion** (valida 4.3)
+- [x] **S1 Límites de AskUserQuestion** (valida 4.3)
   > Prompt: *"Usa AskUserQuestion para hacerme 1 pregunta con 4 opciones. Luego dime qué límites tiene esa herramienta (preguntas por llamada, opciones por pregunta, si agrega 'Other' automáticamente, largo del header). Anota los hallazgos en specs/spikes.md."*
 
   **Verificación:** `spikes.md` tiene los límites. Si el máximo es 4 opciones, confirmar formato "3 reales + No sé". Si difiere, actualizar `design.md` 4.3 **antes** de seguir.
 
-- [ ] **S2 Formato del transcript** (valida 4.5)
+- [x] **S2 Formato del transcript** (valida 4.5)
   > Prompt: *"Tras esta respuesta, usa AskUserQuestion una vez. Luego busca el transcript .jsonl de esta sesión en ~/.claude/projects/, y documenta en spikes.md: cómo se ven las entradas de usuario, texto del asistente, tool_use de AskUserQuestion y su tool_result (con ejemplos reducidos)."*
 
   **Verificación:** `spikes.md` tiene un ejemplo real de cada tipo de entrada.
 
-- [ ] **S3 Hook Stop en Windows** (valida ADR-02, 4.5)
+- [x] **S3 Hook Stop en Windows** (valida ADR-02, 4.5)
   > Prompt: *"Crea un hook Stop temporal en .claude/settings.json que ejecute `node -e` y escriba la hora y el transcript_path recibido por stdin en .learn/hook-test.txt. No toques nada más."*
 
   Reinicia Claude Code, manda un mensaje. **Verificación:** `.learn/hook-test.txt` existe con una ruta válida. Luego elimina el hook de prueba.
 
-- [ ] **S4 Subagente mira un PNG** (valida 4.7)
+- [x] **S4 Subagente mira un PNG** (valida 4.7)
   > Prompt: *"Crea un subagente temporal en .claude/agents/png-test.md con tools Read y model sonnet, cuya tarea sea leer una imagen y describirla. Úsalo sobre cualquier PNG de C:\Windows\Web\Wallpaper y muéstrame su descripción."*
 
   **Verificación:** la descripción corresponde a la imagen real. Borra `png-test.md`.
