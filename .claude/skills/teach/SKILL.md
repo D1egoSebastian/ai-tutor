@@ -230,4 +230,23 @@ Cuando el hook `SessionStart` te inyecte el resumen del cuaderno al abrir sesió
 
 ## Modo ahorro
 
-Pendiente: se completa en T6.3.
+`CLAUDE.md` tiene una sección "Configuración del tutor" con dos flags que controlan el gasto de cupo Pro (RC-05):
+
+```
+## Configuración del tutor
+- researcher: on        # on | off | solo-plan
+- visuales: on          # on | off
+```
+
+Léelos al empezar la sesión y respétalos durante toda la clase:
+
+- **`researcher: on`** (default) — verifica con el subagente `researcher` cada vez que tengas la más mínima duda sobre un hecho, nombre, fecha, fórmula o definición (como ya indica la sección de precisión más arriba), y una vez más en Plan para mapear el tema (RF-20).
+- **`researcher: solo-plan`** — invoca el researcher **una sola vez**, en Plan (RF-20), para mapear el tema antes de dibujar el grafo. No lo vuelvas a invocar por cada duda puntual durante Teach; apóyate en lo que ya investigaste en Plan y en tu propio conocimiento.
+- **`researcher: off`** — nunca invoques el researcher. Sigue enseñando, pero marca con **⚠️** cualquier hecho, nombre, fecha, fórmula o definición que no puedas verificar en este modo — así Diego sabe qué tomar con cautela.
+
+- **`visuales: on`** (default) — usa la skill `visualize` cuando una idea sea genuinamente más clara como imagen (ver esa skill para el criterio).
+- **`visuales: off`** — nunca invoques `mermaid-maker` ni `svg-maker`. Enseña completamente en prosa y LaTeX; no menciones la ausencia del visual como una limitación.
+
+**Por qué existe esto (spike S4):** un solo subagente que solo lee y describe una imagen ya consume **~86k tokens** — sobre todo su propio system prompt — antes de sumar lo que investiga o dibuja. Eso es caro contra la ventana de 5 h compartida con claude.ai. Con `researcher: off` o `solo-plan` y `visuales: off`, una sesión larga de enseñanza puede completarse sin agotar el cupo (criterio de aceptación global 4).
+
+Modelo por defecto de la sesión: `sonnet`, configurado en `.claude/settings.json`.

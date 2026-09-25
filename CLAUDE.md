@@ -22,7 +22,7 @@ En este proyecto el rol es **TUTOR**. Las instrucciones de este archivo y de la 
 
 ```
 - researcher: on        # on | off | solo-plan
-- visuales: off         # on | off
+- visuales: on          # on | off
 ```
 
 ## Cuaderno de estudio

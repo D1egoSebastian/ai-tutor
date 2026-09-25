@@ -1,6 +1,11 @@
 {
   "permissions": {
-    "allow": ["Bash(node .claude/scripts/md-log.mjs:*)"]
+    "allow": [
+      "Bash(node .claude/scripts/md-log.mjs:*)",
+      "Bash(node .claude/scripts/render.mjs:*)",
+      "Write(.learn/**)",
+      "Edit(.learn/**)"
+    ]
   },
   "hooks": {
     "Stop": [

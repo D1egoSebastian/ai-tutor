@@ -128,17 +128,17 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 6 — Visuales
 
-- [ ] **T6.1 `render.mjs`** — RF-25
+- [x] **T6.1 `render.mjs`** — RF-25
   > Prompt: *"Lee design.md 4.7. Crea package.json con @mermaid-js/mermaid-cli y @resvg/resvg-js, y .claude/scripts/render.mjs con los modos mermaid y svg, preview en .learn/preview.png y --save <slug> a viz/viz-<slug>-<timestamp>.png imprimiendo filename: y path:. Soporta PUPPETEER_EXECUTABLE_PATH. Errores de sintaxis de Mermaid deben imprimirse legibles, no como stack trace."*
 
   **Verificación:** `npm install`, luego renderiza un `.mmd` y un `.svg` de prueba, con y sin `--save`. Los PNG se ven bien.
 
-- [ ] **T6.2 Makers** — RF-24, RF-25
+- [x] **T6.2 Makers** — RF-24, RF-25
   > Prompt: *"Descarga agents/mermaid-maker.md y agents/svg-maker.md del repo amosblomqvist/learn. Recréalos en .claude/agents/ según design.md 4.7: tools Read, Write, Edit, Bash; model sonnet; cambia las herramientas write_*/render_* por escribir la fuente en .learn/ + node .claude/scripts/render.mjs + Read del PNG. Conserva intacto el ciclo 'verificar mirando' y el bloque RESULT. Agrega el permiso Bash(node .claude/scripts/render.mjs:*)."*
 
   **Verificación:** "Usa mermaid-maker: graph TD, 'paquete' arriba, flechas a 'orden' y 'retransmisión', ambas a 'flujo confiable'". Devuelve `RESULT` con un archivo que existe en `viz/` y es correcto.
 
-- [ ] **T6.3 Skill `visualize` + modo ahorro** — RF-23, RF-26, RF-27
+- [x] **T6.3 Skill `visualize` + modo ahorro** — RF-23, RF-26, RF-27
   > Prompt: *"Descarga skills/visualize/SKILL.md del repo original y recréala en .claude/skills/visualize/SKILL.md traducida, cambiando la invocación a subagentes vía Agent. Reemplaza el marcador '## Modo ahorro' de la skill teach con design.md 4.8. En CLAUDE.md pon visuales: on."*
 
   **Verificación:** en una clase de geometría o grafos aparece `![[viz-...png|500]]` y se renderiza en Obsidian. Con `visuales: off`, no se invocan makers.

@@ -219,6 +219,7 @@ Problema: al abrir `claude` otro día, Diego no debe tener que recordar qué est
 | ADR-07 | `resvg-js` para SVG | `rsvg-convert`, ImageMagick | Sin instalaciones de sistema en Windows. |
 | ADR-08 | md-log vinculado por sesión, con bloques delimitados | Un `logFile` global | Con uno global, una sesión nueva sobrescribiría la nota de otra clase al regenerar. |
 | ADR-09 | Cuaderno escrito por el tutor + leído por hook `SessionStart` | Script que infiere progreso del transcript | El progreso (nodo aprobado) es semántico: lo sabe el tutor, no un parser. El hook garantiza que se lea sin depender de la memoria del modelo. |
+| ADR-10 | `.puppeteerrc.cjs` con `skipDownload: true` + navegador (Chrome/Edge) ya instalado en Windows | Dejar que Puppeteer descargue su propio Chromium | Ese Chromium pesa ~200 MB y `npm install` ya es la única llamada de red permitida (RNF-04) — no tiene sentido duplicarla. `render.mjs` resuelve una lista ordenada de candidatos (`PUPPETEER_EXECUTABLE_PATH` → Chrome → Edge) y prueba cada uno hasta que uno lanza con éxito, pasándolo a `puppeteerConfig.executablePath`. Chrome se prueba antes que Edge porque, en esta máquina, el lanzador `(x86)` de Edge se detecta pero no llega a abrir el puerto de DevTools bajo Puppeteer, mientras que Chrome sí lanza de forma confiable. |
 
 ## 6. Riesgos
 
