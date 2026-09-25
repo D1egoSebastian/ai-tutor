@@ -69,13 +69,27 @@ function errorLogPath(stateDir) {
  * Writes `content` to `filePath` atomically: write to a temp file in the
  * same directory, then rename. Rename is atomic on the same filesystem, so
  * a reader (Obsidian) never observes a half-written file.
+ *
+ * If the rename fails (e.g. the target path is a directory, or a permission
+ * error), the temp file is removed before the error is rethrown — a failed
+ * write must never leak a stray `.tmp` file next to the note.
+ * `renameFn` is injectable for tests.
  */
-function writeFileAtomic(filePath, content) {
+export function writeFileAtomic(filePath, content, { renameFn = fs.renameSync } = {}) {
   const dir = path.dirname(filePath);
   ensureDir(dir);
   const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(tmpPath, content, "utf8");
-  fs.renameSync(tmpPath, filePath);
+  try {
+    renameFn(tmpPath, filePath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Best-effort cleanup — ignore a secondary failure here.
+    }
+    throw err;
+  }
 }
 
 /**
@@ -125,7 +139,14 @@ function readQuizKeys(stateDir) {
 
   const keys = new Map();
   for (const line of lines) {
-    const entry = JSON.parse(line);
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      // Malformed or partial trailing line (e.g. a crash mid-write) — skip
+      // it rather than breaking grading for every other committed id.
+      continue;
+    }
     keys.set(entry.id, entry);
   }
   return keys;
@@ -220,6 +241,40 @@ export function normalizeNotePath(root, inputPath) {
   return posixPath;
 }
 
+/**
+ * Whether `id` is usable as a real session id for the direct link/unlink
+ * path. Rejects absent/empty ids and unexpanded template placeholders (e.g.
+ * a literal `${CLAUDE_SESSION_ID}` when the caller's substitution failed) so
+ * callers safely fall back to the `pending` flow instead of writing a link
+ * under a bogus key.
+ */
+export function isUsableSessionId(id) {
+  if (typeof id !== "string") return false;
+  const trimmed = id.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.startsWith("$")) return false;
+  if (trimmed.includes("{")) return false;
+  return true;
+}
+
+const PENDING_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Age (ms) of a `pending` entry relative to `now()`. The legacy plain-string
+ * form (written by pre-ADR-08 versions, no `at` field) is always treated as
+ * age 0 — never expired — for backward compatibility.
+ */
+function pendingAgeMs(pending, now) {
+  if (!pending || typeof pending !== "object" || !pending.at) return 0;
+  const at = new Date(pending.at).getTime();
+  if (Number.isNaN(at)) return 0;
+  return now().getTime() - at;
+}
+
+function isPendingExpired(pending, now) {
+  return pendingAgeMs(pending, now) > PENDING_TTL_MS;
+}
+
 /** Reads `<stateDir>/state.json`. Tolerant: missing/corrupt file -> default shape. */
 export function readState(stateDir) {
   const filePath = statePath(stateDir);
@@ -243,26 +298,50 @@ export function writeState(stateDir, state) {
   writeFileAtomic(statePath(stateDir), `${JSON.stringify(state, null, 2)}\n`);
 }
 
-/** `link <path>`: normalizes the path and stores it as `pending`. Returns the normalized path. */
-export function link({ root, stateDir, inputPath }) {
+/**
+ * `link <path>`: with a real `session` id, writes `links[session]` directly
+ * (ADR-08 fix — no shared mutable state between concurrent sessions). Without
+ * a usable id (absent, or an unexpanded `${CLAUDE_SESSION_ID}` placeholder),
+ * falls back to storing `{ path, at }` in `pending`, consumed by the next
+ * `render` for *that* session (see `runRender`).
+ */
+export function link({ root, stateDir, inputPath, session, now = () => new Date() }) {
   const normalized = normalizeNotePath(root, inputPath);
   const state = readState(stateDir);
-  state.pending = normalized;
+  if (isUsableSessionId(session)) {
+    state.links[session] = normalized;
+  } else {
+    state.pending = { path: normalized, at: now().toISOString() };
+  }
   writeState(stateDir, state);
   return normalized;
 }
 
-/** CLI wrapper for `link`. `args[0]` is the raw path argument. */
-export function runLink({ args, root, stateDir }) {
+/** CLI wrapper for `link`. `args[0]` is the raw path argument; `--session <id>` is optional. */
+export function runLink({ args, root, stateDir, now }) {
   const inputPath = args[0];
-  const normalized = link({ root, stateDir, inputPath });
+  const { session } = parseFlags(args);
+  const normalized = link({ root, stateDir, inputPath, session, now });
+  if (isUsableSessionId(session)) {
+    return `linked: ${normalized} (session ${session})\n`;
+  }
   return `linked (pending): ${normalized}\n`;
 }
 
-/** CLI wrapper for `unlink`: marks `pending: "UNLINK"`, consumed by the next `render`. */
-export function runUnlink({ stateDir }) {
+/**
+ * CLI wrapper for `unlink`. With a real `session` id, deletes `links[session]`
+ * directly. Otherwise marks `pending: { path: "UNLINK", at }`, consumed by
+ * the next `render` for that session.
+ */
+export function runUnlink({ args = [], stateDir, now = () => new Date() }) {
+  const { session } = parseFlags(args);
   const state = readState(stateDir);
-  state.pending = "UNLINK";
+  if (isUsableSessionId(session)) {
+    delete state.links[session];
+    writeState(stateDir, state);
+    return `unlinked: session ${session}\n`;
+  }
+  state.pending = { path: "UNLINK", at: now().toISOString() };
   writeState(stateDir, state);
   return "unlink requested\n";
 }
@@ -406,9 +485,16 @@ function extractItems(lines) {
   return items;
 }
 
+/** Formats an AskUserQuestion answer: `multiSelect` answers arrive as an array — join with ", ". */
+function formatAnswer(answer) {
+  if (answer === undefined || answer === null) return "_(pendiente)_";
+  if (Array.isArray(answer)) return answer.join(", ");
+  return answer;
+}
+
 function renderQuestionBlock(q) {
   const options = q.options.join(" · ");
-  const answer = q.answer === undefined || q.answer === null ? "_(pendiente)_" : q.answer;
+  const answer = formatAnswer(q.answer);
   return [`> **Pregunta:** ${q.question}`, `> **Opciones:** ${options}`, `> **Respuesta:** ${answer}`].join("\n");
 }
 
@@ -453,13 +539,42 @@ function escapeRegExp(text) {
  * Replaces this session's block in `existingContent` if present, else
  * appends it at the end. Everything outside the markers is preserved
  * byte-for-byte (ADR-08: one note, many session blocks).
+ *
+ * Tolerant of a corrupted note with more than one block for the same
+ * session (e.g. left over from a bug, or a manual edit): the FIRST
+ * occurrence is replaced with the fresh block and every other occurrence
+ * (plus one immediately-following blank-line separator, if any) is dropped,
+ * so the note always ends with exactly one block per session. The session
+ * id is matched literally — `escapeRegExp` runs over the full marker string,
+ * so regex-special characters inside the id can never corrupt the pattern.
  */
 export function upsertSessionBlock({ existingContent, sessionId, block }) {
-  const pattern = new RegExp(`${escapeRegExp(SESSION_START(sessionId))}[\\s\\S]*?${escapeRegExp(SESSION_END(sessionId))}`);
+  const pattern = new RegExp(
+    `${escapeRegExp(SESSION_START(sessionId))}[\\s\\S]*?${escapeRegExp(SESSION_END(sessionId))}`,
+    "g"
+  );
+  const matches = [...existingContent.matchAll(pattern)];
 
-  if (pattern.test(existingContent)) {
-    return existingContent.replace(pattern, block);
+  if (matches.length > 0) {
+    let result = "";
+    let cursor = 0;
+    matches.forEach((match, index) => {
+      const start = match.index;
+      const end = start + match[0].length;
+      result += existingContent.slice(cursor, start);
+      if (index === 0) {
+        result += block;
+        cursor = end;
+      } else {
+        // Duplicate block for this session — drop it, swallowing one
+        // adjacent blank-line separator so we don't leave a double gap.
+        cursor = existingContent.startsWith("\n\n", end) ? end + 2 : end;
+      }
+    });
+    result += existingContent.slice(cursor);
+    return result;
   }
+
   if (existingContent.length === 0) {
     return `${block}\n`;
   }
@@ -496,10 +611,14 @@ export async function runRender({ stateDir, root, stdin = process.stdin, now = (
     }
 
     const state = readState(stateDir);
-    if (state.pending === "UNLINK") {
-      delete state.links[sessionId];
-    } else if (typeof state.pending === "string" && state.pending.length > 0) {
-      state.links[sessionId] = state.pending;
+    if (!isPendingExpired(state.pending, now)) {
+      const pendingPath =
+        state.pending && typeof state.pending === "object" ? state.pending.path : state.pending;
+      if (pendingPath === "UNLINK") {
+        delete state.links[sessionId];
+      } else if (typeof pendingPath === "string" && pendingPath.length > 0) {
+        state.links[sessionId] = pendingPath;
+      }
     }
     state.pending = null;
     writeState(stateDir, state);
@@ -731,8 +850,8 @@ function printUsage() {
       "  quiz-commit --id <qid> --correct <label> --explanation <text>",
       "  quiz-commit --stdin                 (reads {id,correct,explanation} JSON from stdin)",
       "  quiz-grade  --id <qid> --answer <label>",
-      "  link <path>                         (sets pending link; appends .md if missing)",
-      "  unlink                              (sets pending unlink)",
+      "  link <path> [--session <id>]        (links directly by session id, or sets pending if id is absent/placeholder)",
+      "  unlink [--session <id>]              (unlinks directly by session id, or sets pending unlink)",
       "  render                              (Stop hook: reads hook JSON from stdin)",
       "  notebook                            (SessionStart hook: prints notas/_cuaderno.md summary)",
       "",
@@ -763,7 +882,7 @@ export async function main(argv = process.argv.slice(2)) {
         return;
       }
       case "unlink": {
-        const output = runUnlink({ stateDir });
+        const output = runUnlink({ args: rest, stateDir });
         process.stdout.write(output);
         return;
       }

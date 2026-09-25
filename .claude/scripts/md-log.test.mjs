@@ -20,6 +20,8 @@ import {
   runLink,
   runUnlink,
   readState,
+  writeState,
+  writeFileAtomic,
   readJsonlLines,
   renderSessionBlock,
   upsertSessionBlock,
@@ -120,6 +122,25 @@ test("commitQuiz rejects a duplicate id (RF-12: key cannot change after committi
 test("gradeQuiz rejects an unknown id with a clear error", () => {
   const stateDir = makeTempStateDir();
   assert.throws(() => gradeQuiz({ stateDir, id: "does-not-exist", answer: "anything" }), /unknown quiz id: does-not-exist/);
+});
+
+test("gradeQuiz still grades a valid id when quiz-key.jsonl contains a malformed line", () => {
+  const stateDir = makeTempStateDir();
+  commitQuiz({ stateDir, id: "ok-01", correct: "ACK", explanation: "Acknowledges receipt." });
+  fs.appendFileSync(path.join(stateDir, "quiz-key.jsonl"), "{this is not valid json\n", "utf8");
+
+  const graded = gradeQuiz({ stateDir, id: "ok-01", answer: "ACK" });
+  assert.equal(graded.result, "✓");
+});
+
+test("gradeQuiz ignores a partial trailing line in quiz-key.jsonl (e.g. a crash mid-write)", () => {
+  const stateDir = makeTempStateDir();
+  commitQuiz({ stateDir, id: "ok-02", correct: "SYN", explanation: "Starts the handshake." });
+  fs.appendFileSync(path.join(stateDir, "quiz-key.jsonl"), '{"id":"partial","correct":"X"', "utf8");
+
+  const graded = gradeQuiz({ stateDir, id: "ok-02", answer: "SYN" });
+  assert.equal(graded.result, "✓");
+  assert.throws(() => gradeQuiz({ stateDir, id: "partial", answer: "X" }), /unknown quiz id: partial/);
 });
 
 // ---------- runQuizCommit / runQuizGrade (CLI-layer, flag parsing) ----------
@@ -254,7 +275,8 @@ test("link sets pending in state.json to the normalized path", () => {
   assert.equal(normalized, "notas/tcp.md");
 
   const state = readState(stateDir);
-  assert.equal(state.pending, "notas/tcp.md");
+  assert.equal(state.pending.path, "notas/tcp.md");
+  assert.ok(state.pending.at);
 });
 
 test("runLink prints 'linked (pending): <path>'", () => {
@@ -273,7 +295,141 @@ test("runUnlink sets pending to UNLINK and prints 'unlink requested'", () => {
   assert.equal(output, "unlink requested\n");
 
   const state = readState(stateDir);
-  assert.equal(state.pending, "UNLINK");
+  assert.equal(state.pending.path, "UNLINK");
+  assert.ok(state.pending.at);
+});
+
+// ---------- link / unlink with explicit --session (race fix, ADR-08) ----------
+
+test("link with a real session id writes directly to links[session] and does not touch pending", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  const normalized = link({ root, stateDir, inputPath: "notas/tcp", session: "sess-real-123" });
+  assert.equal(normalized, "notas/tcp.md");
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-real-123"], "notas/tcp.md");
+  assert.equal(state.pending, null);
+});
+
+test("link with an unexpanded placeholder session id ($ARGUMENTS-style) falls back to pending", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", session: "${CLAUDE_SESSION_ID}" });
+
+  const state = readState(stateDir);
+  assert.equal(state.pending.path, "notas/tcp.md");
+  assert.ok(state.pending.at);
+  assert.deepEqual(state.links, {});
+});
+
+test("link with an empty session id falls back to pending", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", session: "" });
+
+  const state = readState(stateDir);
+  assert.equal(state.pending.path, "notas/tcp.md");
+});
+
+test("two links with explicit real session ids before any render do not cross (no shared pending race)", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", session: "sess-A" });
+  link({ root, stateDir, inputPath: "notas/derivadas", session: "sess-B" });
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-A"], "notas/tcp.md");
+  assert.equal(state.links["sess-B"], "notas/derivadas.md");
+  assert.equal(state.pending, null);
+});
+
+test("runLink prints a session-scoped message when a real session id is given", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  const output = runLink({ args: ["notas/tcp", "--session", "sess-real-123"], root, stateDir });
+  assert.equal(output, "linked: notas/tcp.md (session sess-real-123)\n");
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-real-123"], "notas/tcp.md");
+});
+
+test("runLink falls back to the pending message when --session is a placeholder", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  const output = runLink({ args: ["notas/tcp", "--session", "${CLAUDE_SESSION_ID}"], root, stateDir });
+  assert.equal(output, "linked (pending): notas/tcp.md\n");
+});
+
+test("runUnlink with a real session id deletes links[session] directly and does not touch pending", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", session: "sess-real-123" });
+  const output = runUnlink({ args: ["--session", "sess-real-123"], stateDir });
+  assert.equal(output, "unlinked: session sess-real-123\n");
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-real-123"], undefined);
+  assert.equal(state.pending, null);
+});
+
+test("runRender ignores a pending link older than 10 minutes", async () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", now: () => new Date("2026-01-01T00:00:00Z") });
+
+  await runRender({
+    stateDir,
+    root,
+    stdin: stdinJson({ session_id: "sess-stale", transcript_path: TRANSCRIPT_FIXTURE }),
+    now: () => new Date("2026-01-01T00:15:00Z"), // 15 minutes later — stale
+  });
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-stale"], undefined);
+  assert.equal(fs.existsSync(path.join(root, "notas")), false);
+});
+
+test("runRender still applies a pending link within the 10-minute window", async () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  link({ root, stateDir, inputPath: "notas/tcp", now: () => new Date("2026-01-01T00:00:00Z") });
+
+  await runRender({
+    stateDir,
+    root,
+    stdin: stdinJson({ session_id: "sess-fresh", transcript_path: TRANSCRIPT_FIXTURE }),
+    now: () => new Date("2026-01-01T00:09:59Z"), // just under 10 minutes later
+  });
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-fresh"], "notas/tcp.md");
+});
+
+test("runRender still applies an old plain-string pending (backward compatibility)", async () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+
+  writeState(stateDir, { pending: "notas/tcp.md", links: {} });
+
+  await runRender({
+    stateDir,
+    root,
+    stdin: stdinJson({ session_id: "sess-legacy", transcript_path: TRANSCRIPT_FIXTURE }),
+    now: () => new Date("2026-01-01T00:00:00Z"),
+  });
+
+  const state = readState(stateDir);
+  assert.equal(state.links["sess-legacy"], "notas/tcp.md");
 });
 
 // ---------- renderSessionBlock (pure transcript -> markdown block) ----------
@@ -322,6 +478,71 @@ test("RNF-05: rendered note never leaks the committed correct label, and never c
   assert.doesNotMatch(before, /SECRET-CORRECT-LABEL/);
 });
 
+test("renderSessionBlock joins a multiSelect array answer with ', '", () => {
+  const lines = [
+    {
+      type: "assistant",
+      isSidechain: false,
+      timestamp: "2026-01-01T00:00:00Z",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_multi",
+            name: "AskUserQuestion",
+            input: {
+              questions: [
+                {
+                  question: "¿Qué temas repasamos hoy?",
+                  options: [{ label: "TCP" }, { label: "UDP" }, { label: "DNS" }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_multi", content: "..." }] },
+      toolUseResult: { answers: { "¿Qué temas repasamos hoy?": ["TCP", "DNS"] } },
+    },
+  ];
+
+  const block = renderSessionBlock({ sessionId: "s1", lines, now: () => new Date("2026-01-01T00:00:00Z") });
+  assert.match(block, /\*\*Respuesta:\*\* TCP, DNS/);
+});
+
+test("renderSessionBlock leaves a comma-containing string answer unchanged", () => {
+  const lines = [
+    {
+      type: "assistant",
+      isSidechain: false,
+      timestamp: "2026-01-01T00:00:00Z",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_str",
+            name: "AskUserQuestion",
+            input: {
+              questions: [{ question: "¿Cuál es tu respuesta?", options: [{ label: "A" }, { label: "B" }] }],
+            },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_str", content: "..." }] },
+      toolUseResult: { answers: { "¿Cuál es tu respuesta?": "A, B and something else" } },
+    },
+  ];
+
+  const block = renderSessionBlock({ sessionId: "s1", lines, now: () => new Date("2026-01-01T00:00:00Z") });
+  assert.match(block, /\*\*Respuesta:\*\* A, B and something else/);
+});
+
 // ---------- upsertSessionBlock (marker replace/append, preserving outside content) ----------
 
 test("upsertSessionBlock appends the block to an empty file", () => {
@@ -353,6 +574,53 @@ test("upsertSessionBlock appends a second session's block without touching the f
 
   assert.match(result, /A content/);
   assert.match(result, /B content/);
+});
+
+test("upsertSessionBlock removes a duplicate block for the same session, ending with exactly one", () => {
+  const oldBlock1 = "<!-- md-log:session s1 start -->\nfirst old\n<!-- md-log:session s1 end -->";
+  const oldBlock2 = "<!-- md-log:session s1 start -->\nsecond old (duplicate bug)\n<!-- md-log:session s1 end -->";
+  const newBlock = "<!-- md-log:session s1 start -->\nnew content\n<!-- md-log:session s1 end -->";
+  const existing = `${oldBlock1}\n\n${oldBlock2}\n`;
+
+  const result = upsertSessionBlock({ existingContent: existing, sessionId: "s1", block: newBlock });
+
+  const occurrences = result.split("<!-- md-log:session s1 start -->").length - 1;
+  assert.equal(occurrences, 1);
+  assert.match(result, /new content/);
+  assert.doesNotMatch(result, /first old/);
+  assert.doesNotMatch(result, /second old \(duplicate bug\)/);
+});
+
+test("upsertSessionBlock preserves an interleaved different-session block byte-for-byte while deduping", () => {
+  const s1Old1 = "<!-- md-log:session s1 start -->\nold 1\n<!-- md-log:session s1 end -->";
+  const s2Block = "<!-- md-log:session s2 start -->\nS2 UNTOUCHED\n<!-- md-log:session s2 end -->";
+  const s1Old2 = "<!-- md-log:session s1 start -->\nold 2\n<!-- md-log:session s1 end -->";
+  const newS1 = "<!-- md-log:session s1 start -->\nnew 1\n<!-- md-log:session s1 end -->";
+  const existing = `${s1Old1}\n\n${s2Block}\n\n${s1Old2}\n`;
+
+  const result = upsertSessionBlock({ existingContent: existing, sessionId: "s1", block: newS1 });
+
+  assert.ok(result.includes(s2Block), "s2 block must be preserved byte-for-byte");
+  const occurrences = result.split("<!-- md-log:session s1 start -->").length - 1;
+  assert.equal(occurrences, 1);
+});
+
+test("upsertSessionBlock dedupes and correctly escapes a session id with regex-special characters", () => {
+  const sessionId = "a.b*c+d?(e)[f]";
+  const start = `<!-- md-log:session ${sessionId} start -->`;
+  const end = `<!-- md-log:session ${sessionId} end -->`;
+  const old1 = `${start}\nold 1\n${end}`;
+  const old2 = `${start}\nold 2\n${end}`;
+  const newBlock = `${start}\nnew\n${end}`;
+  const existing = `${old1}\n\n${old2}\n`;
+
+  const result = upsertSessionBlock({ existingContent: existing, sessionId, block: newBlock });
+
+  const occurrences = result.split(start).length - 1;
+  assert.equal(occurrences, 1);
+  assert.match(result, /\nnew\n/);
+  assert.doesNotMatch(result, /old 1/);
+  assert.doesNotMatch(result, /old 2/);
 });
 
 // ---------- runRender (integration: stdin hook JSON -> state.json + note file) ----------
@@ -520,6 +788,76 @@ test("runRender never throws on broken stdin JSON", async () => {
   await assert.doesNotReject(() =>
     runRender({ stateDir, root, stdin: stdinFrom("{not valid json"), now: () => new Date() })
   );
+});
+
+test("readState returns defaults without throwing when state.json is corrupt (pinning existing tolerant behavior)", () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(path.join(stateDir, "state.json"), "{this is not valid json", "utf8");
+
+  assert.doesNotThrow(() => readState(stateDir));
+  const state = readState(stateDir);
+  assert.deepEqual(state, { pending: null, links: {} });
+});
+
+test("renderSessionBlock renders only the text block when user content mixes an image and a text block (pinning existing tolerant behavior)", () => {
+  const lines = [
+    {
+      type: "user",
+      isSidechain: false,
+      timestamp: "2026-01-01T00:00:00Z",
+      message: {
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAAAAAA" } },
+          { type: "text", text: "Mira este diagrama que dibujé" },
+        ],
+      },
+    },
+  ];
+
+  const block = renderSessionBlock({ sessionId: "s1", lines, now: () => new Date("2026-01-01T00:00:00Z") });
+  assert.match(block, /\*\*Diego:\*\* Mira este diagrama que dibujé/);
+  assert.doesNotMatch(block, /base64/);
+  assert.doesNotMatch(block, /image\/png/);
+});
+
+test("runRender never crashes when the note target path is unwritable (e.g. a directory), and logs the error", async () => {
+  const root = makeTempRoot();
+  const stateDir = path.join(root, ".learn");
+  const notePath = path.join(root, "notas", "tcp.md");
+
+  // Make the target path a directory so writing the note fails.
+  fs.mkdirSync(notePath, { recursive: true });
+
+  link({ root, stateDir, inputPath: "notas/tcp" });
+  await assert.doesNotReject(() =>
+    runRender({
+      stateDir,
+      root,
+      stdin: stdinJson({ session_id: "sess-fail", transcript_path: TRANSCRIPT_FIXTURE }),
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    })
+  );
+
+  const errorLog = fs.readFileSync(path.join(stateDir, "md-log-error.log"), "utf8");
+  assert.match(errorLog, /render:/);
+});
+
+test("writeFileAtomic removes the temp file and rethrows when the rename fails (injected rename function)", () => {
+  const root = makeTempRoot();
+  const filePath = path.join(root, "notas", "tcp.md");
+  const failingRename = () => {
+    throw new Error("simulated rename failure");
+  };
+
+  assert.throws(
+    () => writeFileAtomic(filePath, "content", { renameFn: failingRename }),
+    /simulated rename failure/
+  );
+
+  const dirEntries = fs.readdirSync(path.join(root, "notas"));
+  assert.deepEqual(dirEntries, [], "no leftover .tmp file after a failed rename");
 });
 
 // ---------- CLI-level (spawned process) ----------

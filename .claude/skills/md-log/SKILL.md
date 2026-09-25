@@ -8,7 +8,7 @@ argument-hint: <ruta.md>
 Ejecuta exactamente esto, sin modificarlo:
 
 ```bash
-node .claude/scripts/md-log.mjs link '$ARGUMENTS'
+node .claude/scripts/md-log.mjs link '$ARGUMENTS' --session '${CLAUDE_SESSION_ID}'
 ```
 
 Después dile a Diego, en una sola línea, que la nota se (re)escribirá al final de este turno, incluyendo el historial previo de la sesión. Nada más.

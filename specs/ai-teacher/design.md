@@ -109,9 +109,11 @@ Uso directo, sin protocolo. La skill prohíbe usarlo para cosas con respuesta co
 
 ### 4.5 md-log (RF-15…18)
 
-**`/md-log <ruta>`** (skill con `disable-model-invocation: true`): indica a Claude ejecutar `node .claude/scripts/md-log.mjs link "<ruta>"`, que escribe `pending: "<ruta>"` en `.learn/state.json`. El siguiente `render` (que sí recibe `session_id` del hook) convierte ese `pending` en `links[session_id] = ruta`. Así el vínculo es **por sesión**: abrir una sesión nueva no reescribe la nota de otra.
+**`/md-log <ruta>`** (skill con `disable-model-invocation: true`): indica a Claude ejecutar `node .claude/scripts/md-log.mjs link "<ruta>" --session "${CLAUDE_SESSION_ID}"`, que escribe `links[session_id] = ruta` en `.learn/state.json`. El siguiente `render` regenera el bloque de esa sesión. Así el vínculo es **por sesión**: abrir una sesión nueva no reescribe la nota de otra.
 
-**`/md-unlog`**: ejecuta `... unlink`, que marca `pending: "UNLINK"`. El siguiente `render` borra `links[session_id]` y ya no escribe (su bloque previo queda intacto en la nota).
+**`/md-unlog`**: ejecuta `... unlink --session "${CLAUDE_SESSION_ID}"`, que borra `links[session_id]` directamente. El siguiente `render` ya no escribe (su bloque previo queda intacto en la nota).
+
+**Corrección de fiabilidad (ADR-08):** cuando `${CLAUDE_SESSION_ID}` se expande a un id real, `link`/`unlink` escriben `links[session_id]` de forma directa, sin pasar por `pending`, para evitar que dos sesiones concurrentes se pisen el mismo campo compartido. `pending` (ahora `{ path, at }`) solo se usa como *fallback* cuando el id llega vacío o sin expandir (empieza con `$` o contiene `{`), y el siguiente `render` lo aplica a `links[session_id]`. Todo `pending` con más de 10 minutos de antigüedad se descarta en `render` para no vincular la nota equivocada a una sesión que arrancó mucho después.
 
 **Varias sesiones en una misma nota.** Continuar un tema otro día = vincular la misma ruta en la sesión nueva. Cada sesión escribe solo su propio bloque, delimitado por marcadores HTML (invisibles en Obsidian):
 ```
