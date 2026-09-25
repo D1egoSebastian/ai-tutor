@@ -119,7 +119,7 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 5 — Researcher
 
-- [ ] **T5 Subagente `researcher`** — RF-19…22
+- [x] **T5 Subagente `researcher`** — RF-19…22
   > Prompt: *"Descarga https://raw.githubusercontent.com/amosblomqvist/learn/main/agents/researcher.md. Recréalo en .claude/agents/researcher.md según design.md 4.6: frontmatter de Claude Code (tools: WebSearch, WebFetch; model: haiku; description que empiece con 'Use this agent to…'), cuerpo traducido al español conservando el formato de salida."*
 
   **Verificación:** "Usa el researcher para verificar en qué año se publicó el RFC de TCP". Devuelve Resumen/Hallazgos/Fuentes/Vacíos con enlaces reales. En el Plan de una clase, el tutor lo invoca antes de dibujar el grafo.
