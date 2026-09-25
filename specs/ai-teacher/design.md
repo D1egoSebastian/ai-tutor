@@ -46,7 +46,8 @@ graph TD
 ```
 ai-teacher/                      ← vault de Obsidian y raíz del proyecto
 ├── CLAUDE.md                    ← contexto permanente: perfil, idioma, reglas
-├── README.md                    ← instalación y uso
+├── README.md                    ← instalación y solución de problemas
+├── MANUAL.md                    ← guía de uso diario
 ├── package.json                 ← dependencias de los scripts
 ├── .claude/
 │   ├── settings.json            ← modelo por defecto, hooks, permisos, flags

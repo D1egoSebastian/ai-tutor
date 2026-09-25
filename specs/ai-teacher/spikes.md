@@ -82,3 +82,18 @@ Recommended hook command form: `node "$CLAUDE_PROJECT_DIR/.claude/scripts/md-log
 A Sonnet subagent with only `Read` described `.pi/assets/thumbnail.png` correctly (π logo, arrows, quiz with ✗ on option 3 and ✓ on option 4, "Incorrect.", "D'Alembert + trig identity."). ✓
 
 **Cost finding (RC-05):** that single-read subagent consumed **~86k tokens**, mostly its own system prompt. Each maker/researcher call is expensive in Pro quota. This supports `visuales: off` as a sensible default for long sessions and one diagram per idea max.
+
+## T7.3 — Acceptance evidence (automated part, 2026-09-25)
+
+| Global criterion | Evidence | Status |
+|---|---|---|
+| 1. No API key, no extra usage | `ANTHROPIC_API_KEY` empty at process, User and Machine level; all runs used the subscription login | ✓ automated · usage page to be checked by Diego |
+| 2. "Enséñame cómo funciona TCP" runs Probe → goal → Mermaid plan → approval → nodes with quiz | Headless mode cannot answer `AskUserQuestion`, so the full flow needs an interactive session. Pieces verified: tutor loads profile/Spanish from CLAUDE.md; quiz scripts (103 tests) | ⏳ manual |
+| 3. Linked `.md` renders in Obsidian with LaTeX, Mermaid and `viz/` images | `render` on this project's real build transcript (0 leaks); E2E hook run wrote a note with intact `$e^{i\pi}+1=0$`; mermaid-maker published a correct PNG to `viz/` (viewed) | ✓ files · visual check in Obsidian manual |
+| 4. Tutor works with researcher and visuals off | Saving mode implemented in the teach skill; flags read from CLAUDE.md | ⏳ manual |
+
+Findings during acceptance:
+- In headless `-p` mode, user-invoked skills (`/md-log`) are not expanded; interactive use is required for slash skills.
+- Until the workspace trust dialog is accepted, `permissions.allow` in project settings is ignored (hooks still run).
+- A maker quoted the script path (`node ".claude/scripts/render.mjs"`), which does not match the pre-approved permission rule → exact command form now mandated in both makers and in the teach skill.
+- The Haiku researcher answered correctly (RFC 793, Sept 1981) but reported "no gaps" without mentioning the earlier RFC 675 specification: acceptable, documented in MANUAL §7.

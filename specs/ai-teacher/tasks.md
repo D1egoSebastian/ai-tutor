@@ -147,16 +147,18 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 
 ## Fase 7 — Cierre
 
-- [ ] **T7.1 settings.json final** — RC-05
+- [x] **T7.1 settings.json final** — RC-05
   > Prompt: *"Revisa .claude/settings.json: modelo por defecto sonnet, hook Stop, permisos de los dos scripts y nada más. Explícame cada línea."*
 
-- [ ] **T7.2 README** — RNF-01
+- [x] **T7.2 README** — RNF-01
   > Prompt: *"Escribe README.md: qué es, requisitos, instalación en Windows (resume Fase 0), uso diario (/md-log, pedir un tema, modo ahorro), y solución de problemas (API key, Chromium, hook que no corre)."*
 
 - [ ] **T7.3 Prueba de aceptación E2E** — Criterios globales 1–4 de `requirements.md`
   Manual, sin prompt. Sesión completa: `/md-log notas/tcp.md` → "Enséñame cómo funciona TCP". Recorre la lista de criterios y anota el resultado en `spikes.md`. Repite con `researcher: off` y `visuales: off`.
 
   **Verificación:** los 4 criterios pasan, y https://claude.ai/settings/usage no muestra extra usage.
+
+  **Estado:** parte automatizable registrada en `spikes.md` (T7.3). Queda la sesión interactiva de Diego; checklist en `MANUAL.md` §10.
 
 ---
 
