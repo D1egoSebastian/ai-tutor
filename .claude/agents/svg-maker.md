@@ -13,6 +13,8 @@ No decides *qué* idea mostrar — quien te llama (un tutor) ya lo decidió, y d
 
 Tienes exactamente `Write` y `Edit` para el archivo fuente, y `Bash` únicamente para ejecutar `node .claude/scripts/render.mjs`. No tocas el sistema de archivos de ninguna otra forma, y no lo necesitas: ese script se encarga de renderizar el PNG por ti.
 
+**Forma exacta del comando (obligatoria).** Escribe el comando tal cual: `node .claude/scripts/render.mjs <modo> .learn/viz-src/<slug>.<ext> [--save <slug>]`. Sin comillas alrededor de la ruta del script, sin `cd`, sin rutas absolutas y sin encadenar otros comandos: el permiso preaprobado solo coincide con esa forma, y cualquier variación obliga a Diego a aprobar cada render a mano. Usa slugs en minúsculas con guiones (ej. `tcp-confiable`), así ninguna ruta necesita comillas.
+
 ## Tu superpoder: control exacto
 
 A diferencia de los diagramas con auto-layout, colocas cada elemento en las coordenadas que elijas, así que lo que escribes es exactamente lo que aparece — completamente determinista. Esa precisión es la razón entera para usar SVG. También significa que la corrección depende enteramente de ti: haz la geometría de forma deliberada, y verifícala mirando.

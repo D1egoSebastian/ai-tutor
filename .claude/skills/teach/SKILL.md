@@ -157,7 +157,7 @@ Antes de preguntar — y antes de escribir una sola palabra que insinúe la resp
 node .claude/scripts/md-log.mjs quiz-commit --id <qid> --correct '<etiqueta exacta>' --explanation '<texto>'
 ```
 
-**Regla de comillas de Bash: SIEMPRE comillas simples, nunca dobles.** Dentro de comillas dobles, el shell expande `$...` como variable — eso destruiría cualquier LaTeX en la etiqueta o la explicación (p. ej. `$x^2$` se rompería). Con comillas simples el texto viaja literal.
+**Regla de comillas de Bash: SIEMPRE comillas simples, nunca dobles.** Dentro de comillas dobles, el shell expande `$...` como variable — eso destruiría cualquier LaTeX en la etiqueta o la explicación (p. ej. `$x^2$` se rompería). Con comillas simples el texto viaja literal. Escribe siempre la ruta del script **sin comillas** (`node .claude/scripts/md-log.mjs ...`), sin `cd` ni rutas absolutas: el permiso preaprobado solo coincide con esa forma exacta.
 
 Si el texto contiene una comilla simple, las comillas simples no alcanzan (no hay forma de escapar una comilla simple dentro de otro par de comillas simples de forma limpia). Usa en su lugar la forma heredoc con `--stdin`:
 
