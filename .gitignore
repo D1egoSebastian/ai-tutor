@@ -1,0 +1,12 @@
+# Internal tutor state (quiz keys, link state, previews)
+.learn/
+
+# Dependencies
+node_modules/
+
+# Obsidian workspace (per-device UI state)
+.obsidian/workspace*.json
+
+# OS
+.DS_Store
+Thumbs.db
