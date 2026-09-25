@@ -178,3 +178,10 @@ Un spike responde una pregunta; no produce código final. Guarda cada hallazgo e
 | RNF-01 | T7.2 |
 | RNF-05 | T3.1, T4.1 |
 | RNF-06 | T4.3 |
+
+---
+
+## Cierre SDD (2026-09-25)
+
+- **Verify:** READY WITH NOTES — 103/103 tests, sin drift entre specs, código, README y MANUAL. Nota aplicada: permisos `Write/Edit(.learn/**)` documentados en design 4.7.
+- **Abierto (manual, Diego):** T0.2 (verificar extra usage y `/status`) y T7.3 (sesión interactiva; checklist en `MANUAL.md` §10).

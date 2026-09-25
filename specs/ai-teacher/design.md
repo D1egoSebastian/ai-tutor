@@ -172,7 +172,7 @@ node .claude/scripts/render.mjs svg <in.svg> [--save <slug>]
 
 **Makers** (`tools: Read, Write, Edit, Bash`, `model: sonnet`): mismo ciclo que el original — escribir fuente en `.learn/`, renderizar preview, **leer el PNG con `Read`** (Claude Code muestra imágenes al modelo), criticar, iterar, publicar, devolver bloque `RESULT:`.
 
-Permisos en `settings.json`: permitir sin preguntar `Bash(node .claude/scripts/render.mjs:*)` y `Bash(node .claude/scripts/md-log.mjs:*)`.
+Permisos en `settings.json`: permitir sin preguntar `Bash(node .claude/scripts/render.mjs:*)` y `Bash(node .claude/scripts/md-log.mjs:*)`, más `Write(.learn/**)` y `Edit(.learn/**)` para que los makers escriban la fuente del diagrama en `.learn/viz-src/`. Las reglas `Bash` solo coinciden con la forma exacta `node .claude/scripts/<script>.mjs ...` (sin comillas en la ruta, sin `cd`): skills y agentes la exigen explícitamente.
 
 ### 4.8 Modo ahorro (RF-27, RC-05)
 
